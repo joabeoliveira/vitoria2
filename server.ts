@@ -28,6 +28,10 @@ async function startServer() {
   app.use(express.json({ limit: '25mb' }));
   app.use(express.text({ limit: '25mb', type: ['text/csv', 'text/plain'] }));
 
+  app.get('/api/health', (_req, res) => {
+    res.json({ status: 'ok' });
+  });
+
   // --- Concursos & Ingestion Endpoints ---
   app.get('/api/concursos', (_req, res) => {
     const concursos = getAllConcursos();

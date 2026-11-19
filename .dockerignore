@@ -1,0 +1,13 @@
+.git
+.gitignore
+.env
+.env.*
+!.env.example
+node_modules
+dist
+build
+coverage
+data
+*.log
+README.md
+resultados_ate_3087.csv
