@@ -9,10 +9,11 @@ import type {
   SyncResponse,
 } from '../src/types/lottery.ts';
 import { calculateBetCost, comboSignature, evaluateTicketHits } from '../src/lib/lotteryMath.ts';
+// @ts-ignore node:sqlite is available in the Node.js 22+ runtime used by Docker.
+import { DatabaseSync } from 'node:sqlite';
 
 const DATA_DIR = path.resolve(process.cwd(), 'data');
-const CONCURSOS_FILE = path.join(DATA_DIR, 'concursos.json');
-const BOLOES_FILE = path.join(DATA_DIR, 'boloes.json');
+const DATABASE_FILE = path.join(DATA_DIR, 'vitoria.sqlite');
 
 let concursosCache: Concurso[] | null = null;
 let boloesCache: Bolao[] | null = null;
@@ -23,28 +24,45 @@ function ensureDataDir() {
   }
 }
 
-function readJsonFile<T>(filePath: string, fallback: T): T {
+ensureDataDir();
+const db = new DatabaseSync(DATABASE_FILE);
+db.exec(`
+  PRAGMA journal_mode = WAL;
+  PRAGMA foreign_keys = ON;
+  CREATE TABLE IF NOT EXISTS concursos (
+    id INTEGER PRIMARY KEY,
+    payload TEXT NOT NULL
+  );
+  CREATE TABLE IF NOT EXISTS boloes (
+    id TEXT PRIMARY KEY,
+    payload TEXT NOT NULL
+  );
+`);
+
+function migrateJsonFile<T>(filePath: string, table: 'concursos' | 'boloes', getId: (item: T) => string | number) {
+  if (!fs.existsSync(filePath)) return;
+  const count = Number((db.prepare(`SELECT COUNT(*) AS count FROM ${table}`).get() as { count: number }).count);
+  if (count > 0) return;
+
   try {
-    if (!fs.existsSync(filePath)) return fallback;
     const raw = fs.readFileSync(filePath, 'utf-8');
-    if (!raw.trim()) return fallback;
-    return JSON.parse(raw) as T;
+    const items = raw.trim() ? (JSON.parse(raw) as T[]) : [];
+    const insert = db.prepare(`INSERT OR IGNORE INTO ${table} (id, payload) VALUES (?, ?)`);
+    for (const item of items) insert.run(getId(item), JSON.stringify(item));
+    console.log(`Migrated ${items.length} records from ${path.basename(filePath)} to SQLite.`);
   } catch (err) {
-    console.error(`Failed to read ${filePath}:`, err);
-    return fallback;
+    console.error(`Failed to migrate ${filePath}:`, err);
   }
 }
 
-function writeJsonFile<T>(filePath: string, data: T) {
-  ensureDataDir();
-  const tmpPath = `${filePath}.tmp`;
-  fs.writeFileSync(tmpPath, JSON.stringify(data), 'utf-8');
-  fs.renameSync(tmpPath, filePath);
-}
+// One-time migration for deployments that used the previous JSON persistence.
+migrateJsonFile<Concurso>(path.join(DATA_DIR, 'concursos.json'), 'concursos', (item) => item.concurso);
+migrateJsonFile<Bolao>(path.join(DATA_DIR, 'boloes.json'), 'boloes', (item) => item.id);
 
 export function getAllConcursos(): Concurso[] {
   if (!concursosCache) {
-    concursosCache = readJsonFile<Concurso[]>(CONCURSOS_FILE, []);
+    concursosCache = (db.prepare('SELECT payload FROM concursos ORDER BY id').all() as { payload: string }[])
+      .map((row) => JSON.parse(row.payload) as Concurso);
   }
   return concursosCache;
 }
@@ -52,19 +70,38 @@ export function getAllConcursos(): Concurso[] {
 function saveConcursos(list: Concurso[]) {
   list.sort((a, b) => a.concurso - b.concurso);
   concursosCache = list;
-  writeJsonFile(CONCURSOS_FILE, list);
+  db.exec('BEGIN');
+  try {
+    db.exec('DELETE FROM concursos');
+    const insert = db.prepare('INSERT INTO concursos (id, payload) VALUES (?, ?)');
+    for (const item of list) insert.run(item.concurso, JSON.stringify(item));
+    db.exec('COMMIT');
+  } catch (error) {
+    db.exec('ROLLBACK');
+    throw error;
+  }
 }
 
 export function getAllBoloes(): Bolao[] {
   if (!boloesCache) {
-    boloesCache = readJsonFile<Bolao[]>(BOLOES_FILE, []);
+    boloesCache = (db.prepare('SELECT payload FROM boloes ORDER BY rowid DESC').all() as { payload: string }[])
+      .map((row) => JSON.parse(row.payload) as Bolao);
   }
   return boloesCache;
 }
 
 function saveBoloes(list: Bolao[]) {
   boloesCache = list;
-  writeJsonFile(BOLOES_FILE, list);
+  db.exec('BEGIN');
+  try {
+    db.exec('DELETE FROM boloes');
+    const insert = db.prepare('INSERT INTO boloes (id, payload) VALUES (?, ?)');
+    for (const item of list) insert.run(item.id, JSON.stringify(item));
+    db.exec('COMMIT');
+  } catch (error) {
+    db.exec('ROLLBACK');
+    throw error;
+  }
 }
 
 export function getMaxConcursoNumber(): number {

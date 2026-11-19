@@ -26,6 +26,6 @@ O projeto inclui um `Dockerfile` multi-stage. No EasyPanel, crie um serviço con
 - Variável: `NODE_ENV=production`
 - Health check: `GET /api/health`
 
-Os dados editáveis são salvos em `/app/data`. Configure um volume persistente do EasyPanel apontando para esse caminho; sem o volume, os concursos e bolões serão perdidos quando o container for recriado.
+Os dados editáveis são salvos no SQLite em `/app/data/vitoria.sqlite`. Configure um volume persistente do EasyPanel apontando para `/app/data`; sem o volume, os concursos e bolões serão perdidos quando o container for recriado. O sistema também migra automaticamente instalações antigas que ainda tenham `concursos.json` e `boloes.json` nesse diretório.
 
 O fluxo de atualização fica: alterar código → `git commit` → `git push origin main` → redeploy no EasyPanel.
