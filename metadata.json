@@ -1,0 +1,6 @@
+{
+  "name": "LotoMetria — Análise Estatística, Gerador e Gestão de Bolões",
+  "description": "Plataforma inteligente para análise estatística histórica da Mega-Sena, geração combinatória com filtros heurísticos, fechamentos lotéricos e gestão completa de bolões.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
